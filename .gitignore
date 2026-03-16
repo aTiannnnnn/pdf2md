@@ -1,0 +1,20 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Temp marker/nougat output dirs
+example/.*_marker_tmp/
+example/.*_nougat_tmp/
+example/.*_latexocr_tmp/
+
+# macOS
+.DS_Store
+
+# HuggingFace model cache
+*.bin
+*.safetensors

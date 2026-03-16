@@ -1,0 +1,21 @@
+[project]
+name = "pdf2md-app"
+version = "0.1.0"
+description = "Convert research-paper PDFs to Markdown with high-fidelity backends."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+pdf2md = "pdf2md_app.cli:main"
+pdf2md-review = "pdf2md_app.review_cli:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
