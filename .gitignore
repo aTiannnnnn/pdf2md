@@ -8,9 +8,14 @@ build/
 .eggs/
 
 # Temp marker/nougat output dirs
-example/.*_marker_tmp/
-example/.*_nougat_tmp/
-example/.*_latexocr_tmp/
+.*_marker_tmp/
+.*_nougat_tmp/
+.*_latexocr_tmp/
+
+# Conversion/test artifacts
+_page_*.jpeg
+_page_*.png
+test_*.md
 
 # macOS
 .DS_Store
@@ -18,3 +23,7 @@ example/.*_latexocr_tmp/
 # HuggingFace model cache
 *.bin
 *.safetensors
+
+# IDE
+.vscode/
+.idea/
