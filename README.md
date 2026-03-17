@@ -48,6 +48,16 @@ pdf2md "paper.pdf" -o "paper.md"
 
 Choose backend:
 
+| Backend | Best for | Notes |
+|---------|----------|-------|
+| **marker** (default) | Most papers — good all-around fidelity for text, tables, figures, equations | Recommended starting point. GPU helps but not required |
+| **nougat** | Scanned PDFs, heavy math/equations | Meta's neural OCR — outputs LaTeX-style equations natively. Slower, needs GPU for reasonable speed |
+| **latexocr** | Papers where equation quality matters most | Hybrid: extracts layout with `pdftohtml`, then runs `pix2tex` on detected equation regions. macOS only (uses `sips`) |
+| **pymupdf4llm** | Quick extraction from born-digital PDFs | Lightweight, fast, no external binaries needed. Lower fidelity than Marker |
+| **pdftotext** | Offline fallback, no GPU/internet | Basic text extraction via Poppler. Post-processed with TOC, headings, and cleanup but no equation support |
+
+Start with **marker**. If equations look bad, try **nougat**. For fast text-only extraction, use **pymupdf4llm** or **pdftotext**.
+
 ```bash
 pdf2md "paper.pdf" --backend marker
 pdf2md "paper.pdf" --backend nougat
@@ -68,6 +78,17 @@ Overwrite existing output:
 ```bash
 pdf2md "paper.pdf" --force
 ```
+
+## Web UI
+
+A browser-based interface is also available. Install with the web extra and launch:
+
+```bash
+pip install -e ".[web]"
+pdf2md-web
+```
+
+Then open http://127.0.0.1:5000 — upload a PDF, pick a backend, and download the Markdown.
 
 ## Notes for better quality
 

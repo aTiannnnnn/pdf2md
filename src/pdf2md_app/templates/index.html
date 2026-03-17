@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pdf2md</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #8b8d98;
+    --accent: #6c63ff;
+    --accent-hover: #5a52d5;
+    --error: #ef4444;
+    --success: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .container {
+    width: 100%;
+    max-width: 540px;
+  }
+  h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: .25rem;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: .95rem;
+    margin-bottom: 2rem;
+  }
+
+  /* Drop zone */
+  .dropzone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 3rem 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    margin-bottom: 1.25rem;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: rgba(108, 99, 255, .06);
+  }
+  .dropzone.has-file {
+    border-color: var(--success);
+    border-style: solid;
+  }
+  .dropzone-icon {
+    font-size: 2.5rem;
+    margin-bottom: .75rem;
+  }
+  .dropzone-text {
+    color: var(--muted);
+    font-size: .9rem;
+    line-height: 1.5;
+  }
+  .dropzone-text strong {
+    color: var(--accent);
+  }
+  .file-name {
+    color: var(--text);
+    font-weight: 500;
+    margin-top: .5rem;
+    word-break: break-all;
+  }
+  input[type="file"] { display: none; }
+
+  /* Options row */
+  .options {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+  }
+  label {
+    font-size: .85rem;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  select {
+    flex: 1;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .55rem .75rem;
+    font-size: .9rem;
+    outline: none;
+    cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+
+  /* Button */
+  .btn {
+    width: 100%;
+    padding: .75rem;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background .2s;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+  .btn-primary:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+  .btn-success {
+    background: var(--success);
+    color: #fff;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    margin-top: .75rem;
+  }
+  .btn-success:hover { opacity: .9; }
+
+  /* Status */
+  .status {
+    text-align: center;
+    margin-top: 1rem;
+    font-size: .9rem;
+    min-height: 1.5rem;
+  }
+  .status.error { color: var(--error); }
+  .status.success { color: var(--success); }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 18px; height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .6s linear infinite;
+    vertical-align: middle;
+    margin-right: .4rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  footer {
+    margin-top: 2.5rem;
+    color: var(--muted);
+    font-size: .8rem;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <h1>pdf2md</h1>
+  <p class="subtitle">Convert research PDFs to Markdown</p>
+
+  <div class="dropzone" id="dropzone">
+    <div class="dropzone-icon" id="dropIcon">&#128196;</div>
+    <div class="dropzone-text" id="dropText">
+      <strong>Click to upload</strong> or drag &amp; drop<br>PDF files up to 100 MB
+    </div>
+    <div class="file-name" id="fileName"></div>
+    <input type="file" id="fileInput" accept=".pdf,application/pdf">
+  </div>
+
+  <div class="options">
+    <label for="backend">Backend</label>
+    <select id="backend">
+      <option value="marker" selected>Marker (recommended)</option>
+      <option value="nougat">Nougat (OCR)</option>
+      <option value="latexocr">LaTeX-OCR (equations)</option>
+      <option value="pymupdf4llm">PyMuPDF4LLM</option>
+      <option value="pdftotext">pdftotext (offline)</option>
+    </select>
+  </div>
+
+  <div class="options">
+    <label for="format">Format</label>
+    <select id="format">
+      <option value="markdown" selected>Markdown (.md)</option>
+      <option value="html">HTML (single file, figures embedded)</option>
+    </select>
+  </div>
+
+  <button class="btn btn-primary" id="convertBtn" disabled>Convert</button>
+
+  <div class="status" id="status"></div>
+  <div id="downloadWrap"></div>
+</div>
+
+<footer>
+  Powered by <a href="https://github.com/aTiannnnnn/pdf2md" target="_blank">pdf2md</a>
+</footer>
+
+<script>
+const dropzone  = document.getElementById("dropzone");
+const fileInput = document.getElementById("fileInput");
+const dropIcon  = document.getElementById("dropIcon");
+const dropText  = document.getElementById("dropText");
+const fileName  = document.getElementById("fileName");
+const convertBtn= document.getElementById("convertBtn");
+const status    = document.getElementById("status");
+const dlWrap    = document.getElementById("downloadWrap");
+
+let selectedFile = null;
+
+/* --- Drag & drop --- */
+dropzone.addEventListener("click", () => fileInput.click());
+["dragenter","dragover"].forEach(e =>
+  dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.add("dragover"); }));
+["dragleave","drop"].forEach(e =>
+  dropzone.addEventListener(e, ev => { ev.preventDefault(); dropzone.classList.remove("dragover"); }));
+dropzone.addEventListener("drop", ev => {
+  const file = ev.dataTransfer.files[0];
+  if (file) pickFile(file);
+});
+fileInput.addEventListener("change", () => {
+  if (fileInput.files[0]) pickFile(fileInput.files[0]);
+});
+
+function pickFile(file) {
+  if (!file.name.toLowerCase().endsWith(".pdf")) {
+    showStatus("Please select a PDF file.", true);
+    return;
+  }
+  selectedFile = file;
+  dropzone.classList.add("has-file");
+  dropIcon.textContent = "\u2705";
+  dropText.innerHTML = "<strong>File selected</strong>";
+  fileName.textContent = file.name;
+  convertBtn.disabled = false;
+  dlWrap.innerHTML = "";
+  status.textContent = "";
+}
+
+/* --- Convert --- */
+convertBtn.addEventListener("click", async () => {
+  if (!selectedFile) return;
+
+  convertBtn.disabled = true;
+  dlWrap.innerHTML = "";
+  showStatus('<span class="spinner"></span> Converting\u2026 this may take a moment', false);
+
+  const form = new FormData();
+  form.append("file", selectedFile);
+  form.append("backend", document.getElementById("backend").value);
+  form.append("format", document.getElementById("format").value);
+
+  try {
+    const res = await fetch("/convert", { method: "POST", body: form });
+    const data = await res.json();
+
+    if (!res.ok) {
+      showStatus(data.error || "Conversion failed.", true);
+      convertBtn.disabled = false;
+      return;
+    }
+
+    const isZip = data.filename.endsWith(".zip");
+    showStatus(
+      isZip ? "Conversion complete! (zipped with figures)" : "Conversion complete!",
+      false
+    );
+    status.classList.add("success");
+
+    const a = document.createElement("a");
+    a.href = "/download/" + data.job_id;
+    a.className = "btn btn-success";
+    a.textContent = "Download " + data.filename;
+    dlWrap.appendChild(a);
+  } catch (err) {
+    showStatus("Network error: " + err.message, true);
+  }
+
+  convertBtn.disabled = false;
+});
+
+function showStatus(msg, isError) {
+  status.innerHTML = msg;
+  status.className = "status" + (isError ? " error" : "");
+}
+</script>
+</body>
+</html>

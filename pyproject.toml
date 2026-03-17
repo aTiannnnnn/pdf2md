@@ -6,9 +6,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+web = ["flask>=3.0", "markdown>=3.5"]
+
 [project.scripts]
 pdf2md = "pdf2md_app.cli:main"
 pdf2md-review = "pdf2md_app.review_cli:main"
+pdf2md-web = "pdf2md_app.web:main"
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
