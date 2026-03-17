@@ -15,6 +15,7 @@
     --accent-hover: #5a52d5;
     --error: #ef4444;
     --success: #22c55e;
+    --warn: #f59e0b;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -136,6 +137,114 @@
   }
   .btn-success:hover { opacity: .9; }
 
+  /* Progress bar */
+  .progress-wrap {
+    margin-top: 1rem;
+    display: none;
+  }
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--surface);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width .4s ease-out;
+  }
+  .progress-fill.done {
+    background: var(--success);
+  }
+  .progress-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: .5rem;
+    font-size: .85rem;
+    color: var(--muted);
+  }
+
+  /* System stats */
+  .stats-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .75rem 1rem;
+    margin-top: 1.5rem;
+  }
+  .stats-title {
+    font-size: .75rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    margin-bottom: .5rem;
+  }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem .75rem;
+  }
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: .2rem;
+  }
+  .stat-label {
+    font-size: .75rem;
+    color: var(--muted);
+  }
+  .stat-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .stat-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stat-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width .6s ease-out, background .3s;
+    width: 0%;
+  }
+  .stat-bar-fill.low { background: var(--success); }
+  .stat-bar-fill.mid { background: var(--warn); }
+  .stat-bar-fill.high { background: var(--error); }
+  .stat-val {
+    font-size: .75rem;
+    color: var(--text);
+    min-width: 3.2em;
+    text-align: right;
+  }
+  .stat-detail {
+    font-size: .7rem;
+    color: var(--muted);
+  }
+  .gpu-section {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+    padding-top: .5rem;
+    margin-top: .25rem;
+  }
+  .gpu-name {
+    font-size: .75rem;
+    color: var(--muted);
+    margin-bottom: .4rem;
+  }
+  .gpu-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: .5rem;
+  }
+
   /* Status */
   .status {
     text-align: center;
@@ -145,19 +254,6 @@
   }
   .status.error { color: var(--error); }
   .status.success { color: var(--success); }
-
-  /* Spinner */
-  .spinner {
-    display: inline-block;
-    width: 18px; height: 18px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin .6s linear infinite;
-    vertical-align: middle;
-    margin-right: .4rem;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
 
   footer {
     margin-top: 2.5rem;
@@ -172,7 +268,7 @@
 
 <div class="container">
   <h1>pdf2md</h1>
-  <p class="subtitle">Convert research PDFs to Markdown</p>
+  <p class="subtitle">Convert research PDFs to Markdown or HTML</p>
 
   <div class="dropzone" id="dropzone">
     <div class="dropzone-icon" id="dropIcon">&#128196;</div>
@@ -204,8 +300,65 @@
 
   <button class="btn btn-primary" id="convertBtn" disabled>Convert</button>
 
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="progress-info">
+      <span id="progressStage">Starting...</span>
+      <span id="progressPct">0%</span>
+    </div>
+  </div>
+
   <div class="status" id="status"></div>
   <div id="downloadWrap"></div>
+
+  <!-- System stats -->
+  <div class="stats-panel" id="statsPanel">
+    <div class="stats-title">System Resources</div>
+    <div class="stats-grid">
+      <div class="stat-item">
+        <div class="stat-label">CPU</div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar"><div class="stat-bar-fill" id="cpuBar"></div></div>
+          <span class="stat-val" id="cpuVal">--</span>
+        </div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-label">Memory</div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar"><div class="stat-bar-fill" id="memBar"></div></div>
+          <span class="stat-val" id="memVal">--</span>
+        </div>
+        <div class="stat-detail" id="memDetail"></div>
+      </div>
+      <div class="gpu-section" id="gpuSection" style="display:none;">
+        <div class="gpu-name" id="gpuName"></div>
+        <div class="gpu-stats">
+          <div class="stat-item">
+            <div class="stat-label">GPU</div>
+            <div class="stat-bar-wrap">
+              <div class="stat-bar"><div class="stat-bar-fill" id="gpuBar"></div></div>
+              <span class="stat-val" id="gpuVal">--</span>
+            </div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">VRAM</div>
+            <div class="stat-bar-wrap">
+              <div class="stat-bar"><div class="stat-bar-fill" id="vramBar"></div></div>
+              <span class="stat-val" id="vramVal">--</span>
+            </div>
+            <div class="stat-detail" id="vramDetail"></div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">Temp</div>
+            <div class="stat-bar-wrap">
+              <div class="stat-bar"><div class="stat-bar-fill" id="tempBar"></div></div>
+              <span class="stat-val" id="tempVal">--</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <footer>
@@ -213,14 +366,18 @@
 </footer>
 
 <script>
-const dropzone  = document.getElementById("dropzone");
-const fileInput = document.getElementById("fileInput");
-const dropIcon  = document.getElementById("dropIcon");
-const dropText  = document.getElementById("dropText");
-const fileName  = document.getElementById("fileName");
-const convertBtn= document.getElementById("convertBtn");
-const status    = document.getElementById("status");
-const dlWrap    = document.getElementById("downloadWrap");
+const dropzone     = document.getElementById("dropzone");
+const fileInput    = document.getElementById("fileInput");
+const dropIcon     = document.getElementById("dropIcon");
+const dropText     = document.getElementById("dropText");
+const fileName     = document.getElementById("fileName");
+const convertBtn   = document.getElementById("convertBtn");
+const statusEl     = document.getElementById("status");
+const dlWrap       = document.getElementById("downloadWrap");
+const progressWrap = document.getElementById("progressWrap");
+const progressFill = document.getElementById("progressFill");
+const progressStage= document.getElementById("progressStage");
+const progressPct  = document.getElementById("progressPct");
 
 let selectedFile = null;
 
@@ -250,7 +407,15 @@ function pickFile(file) {
   fileName.textContent = file.name;
   convertBtn.disabled = false;
   dlWrap.innerHTML = "";
-  status.textContent = "";
+  statusEl.textContent = "";
+  progressWrap.style.display = "none";
+}
+
+/* --- Progress --- */
+function setProgress(pct, stage) {
+  progressFill.style.width = pct + "%";
+  progressPct.textContent = Math.round(pct) + "%";
+  if (stage) progressStage.textContent = stage;
 }
 
 /* --- Convert --- */
@@ -259,7 +424,10 @@ convertBtn.addEventListener("click", async () => {
 
   convertBtn.disabled = true;
   dlWrap.innerHTML = "";
-  showStatus('<span class="spinner"></span> Converting\u2026 this may take a moment', false);
+  statusEl.textContent = "";
+  progressWrap.style.display = "block";
+  progressFill.className = "progress-fill";
+  setProgress(0, "Uploading...");
 
   const form = new FormData();
   form.append("file", selectedFile);
@@ -271,34 +439,138 @@ convertBtn.addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok) {
+      setProgress(0, "Failed");
       showStatus(data.error || "Conversion failed.", true);
       convertBtn.disabled = false;
       return;
     }
+
+    setProgress(5, "Conversion started...");
+    pollStatus(data.job_id);
+
+  } catch (err) {
+    setProgress(0, "Failed");
+    showStatus("Network error: " + err.message, true);
+    convertBtn.disabled = false;
+  }
+});
+
+async function pollStatus(jobId) {
+  try {
+    const res = await fetch("/status/" + jobId);
+    const data = await res.json();
+
+    if (data.status === "converting") {
+      const pct = Math.max(5, (data.progress || 0) * 100);
+      setProgress(pct, data.stage || "Converting...");
+      setTimeout(() => pollStatus(jobId), 800);
+      return;
+    }
+
+    if (data.status === "error") {
+      setProgress(0, "Failed");
+      showStatus(data.error, true);
+      convertBtn.disabled = false;
+      return;
+    }
+
+    // Done
+    setProgress(100, "Done!");
+    progressFill.classList.add("done");
 
     const isZip = data.filename.endsWith(".zip");
     showStatus(
       isZip ? "Conversion complete! (zipped with figures)" : "Conversion complete!",
       false
     );
-    status.classList.add("success");
+    statusEl.classList.add("success");
 
     const a = document.createElement("a");
-    a.href = "/download/" + data.job_id;
+    a.href = "/download/" + jobId;
     a.className = "btn btn-success";
     a.textContent = "Download " + data.filename;
     dlWrap.appendChild(a);
-  } catch (err) {
-    showStatus("Network error: " + err.message, true);
-  }
+    convertBtn.disabled = false;
 
-  convertBtn.disabled = false;
-});
+  } catch (err) {
+    setProgress(0, "Failed");
+    showStatus("Network error: " + err.message, true);
+    convertBtn.disabled = false;
+  }
+}
 
 function showStatus(msg, isError) {
-  status.innerHTML = msg;
-  status.className = "status" + (isError ? " error" : "");
+  statusEl.innerHTML = msg;
+  statusEl.className = "status" + (isError ? " error" : "");
 }
+
+/* --- System stats --- */
+function barLevel(pct) {
+  if (pct < 50) return "low";
+  if (pct < 80) return "mid";
+  return "high";
+}
+
+function setBar(barEl, valEl, pct, label) {
+  barEl.style.width = pct + "%";
+  barEl.className = "stat-bar-fill " + barLevel(pct);
+  valEl.textContent = label || (pct + "%");
+}
+
+async function fetchStats() {
+  try {
+    const res = await fetch("/system-stats");
+    const d = await res.json();
+
+    if (d.cpu_pct != null) setBar(
+      document.getElementById("cpuBar"),
+      document.getElementById("cpuVal"),
+      d.cpu_pct
+    );
+
+    if (d.mem_pct != null) {
+      setBar(
+        document.getElementById("memBar"),
+        document.getElementById("memVal"),
+        d.mem_pct
+      );
+      document.getElementById("memDetail").textContent =
+        d.mem_used_gb + " / " + d.mem_total_gb + " GB";
+    }
+
+    const gpuSec = document.getElementById("gpuSection");
+    if (d.gpu) {
+      gpuSec.style.display = "";
+      document.getElementById("gpuName").textContent = d.gpu.name;
+
+      setBar(
+        document.getElementById("gpuBar"),
+        document.getElementById("gpuVal"),
+        d.gpu.util_pct
+      );
+      setBar(
+        document.getElementById("vramBar"),
+        document.getElementById("vramVal"),
+        d.gpu.mem_pct
+      );
+      document.getElementById("vramDetail").textContent =
+        Math.round(d.gpu.mem_used_mb) + " / " + Math.round(d.gpu.mem_total_mb) + " MB";
+
+      const tempPct = Math.min(100, d.gpu.temp_c / 90 * 100);
+      setBar(
+        document.getElementById("tempBar"),
+        document.getElementById("tempVal"),
+        tempPct,
+        d.gpu.temp_c + "\u00B0C"
+      );
+    } else {
+      gpuSec.style.display = "none";
+    }
+  } catch (e) {}
+}
+
+fetchStats();
+setInterval(fetchStats, 2000);
 </script>
 </body>
 </html>

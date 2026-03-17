@@ -15,10 +15,21 @@ class ConversionError(RuntimeError):
     pass
 
 
+from typing import Callable
+
+ProgressCallback = Callable[[str, float], None]
+"""Signature: (stage_description, fraction_0_to_1) -> None"""
+
+
+def _noop_progress(stage: str, frac: float) -> None:
+    pass
+
+
 @dataclass
 class ConvertOptions:
     backend: str = "marker"
     force: bool = False
+    on_progress: ProgressCallback = _noop_progress
 
 
 @dataclass
@@ -92,7 +103,8 @@ def _prepare_output(output_md: Path, force: bool) -> None:
         )
 
 
-def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool) -> Path:
+def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool,
+                         on_progress: ProgressCallback = _noop_progress) -> Path:
     marker_bin = _find_command("marker_single")
     if marker_bin is None:
         raise ConversionError(
@@ -105,6 +117,8 @@ def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool) -> Path:
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    on_progress("Running marker conversion", 0.1)
+
     cmd = [
         marker_bin,
         str(input_pdf),
@@ -114,6 +128,7 @@ def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool) -> Path:
         "markdown",
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
+    on_progress("Marker conversion finished", 0.7)
     if proc.returncode != 0:
         raise ConversionError(
             "marker conversion failed.\n"
@@ -129,6 +144,7 @@ def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool) -> Path:
     chosen = sorted(generated, key=lambda p: len(str(p)))[0]
     md_content = chosen.read_text(encoding="utf-8")
 
+    on_progress("Copying images", 0.85)
     # Copy extracted images to sit alongside the output markdown file.
     _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
     for img_file in chosen.parent.rglob("*"):
@@ -150,7 +166,8 @@ def _convert_with_marker(input_pdf: Path, output_md: Path, force: bool) -> Path:
     return output_md
 
 
-def _convert_with_pymupdf4llm(input_pdf: Path, output_md: Path) -> Path:
+def _convert_with_pymupdf4llm(input_pdf: Path, output_md: Path,
+                              on_progress: ProgressCallback = _noop_progress) -> Path:
     try:
         import pymupdf4llm  # type: ignore
     except ImportError as exc:
@@ -159,16 +176,19 @@ def _convert_with_pymupdf4llm(input_pdf: Path, output_md: Path) -> Path:
             "Install with: pip install pymupdf4llm"
         ) from exc
 
+    on_progress("Extracting with PyMuPDF4LLM", 0.1)
     md = pymupdf4llm.to_markdown(
         str(input_pdf),
         write_images=True,
         image_path=str(output_md.parent),
     )
+    on_progress("Writing output", 0.9)
     output_md.write_text(md, encoding="utf-8")
     return output_md
 
 
-def _convert_with_nougat(input_pdf: Path, output_md: Path, force: bool) -> Path:
+def _convert_with_nougat(input_pdf: Path, output_md: Path, force: bool,
+                         on_progress: ProgressCallback = _noop_progress) -> Path:
     nougat_bin = _find_command("nougat")
     if nougat_bin is None:
         raise ConversionError(
@@ -181,8 +201,10 @@ def _convert_with_nougat(input_pdf: Path, output_md: Path, force: bool) -> Path:
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    on_progress("Running nougat OCR", 0.1)
     cmd = [nougat_bin, str(input_pdf), "-o", str(tmp_dir)]
     proc = subprocess.run(cmd, capture_output=True, text=True)
+    on_progress("Nougat OCR finished", 0.8)
     if proc.returncode != 0:
         raise ConversionError(
             "nougat conversion failed.\n"
@@ -445,7 +467,8 @@ def _column_order(lines: list[_PageLine], page_width: int) -> list[_PageLine]:
     return ordered
 
 
-def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Path:
+def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool,
+                           on_progress: ProgressCallback = _noop_progress) -> Path:
     pdftohtml_bin = _find_command("pdftohtml")
     sips_bin = _find_command("sips")
 
@@ -454,6 +477,7 @@ def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Pat
     if sips_bin is None:
         raise ConversionError("latexocr backend needs `sips` (macOS tool) installed.")
 
+    on_progress("Loading LaTeX-OCR model", 0.05)
     warnings.filterwarnings("ignore", message=".*invalid value encountered in divide.*", category=RuntimeWarning)
     latex_model = _load_pix2tex_model()
 
@@ -462,6 +486,7 @@ def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Pat
         shutil.rmtree(tmp_dir)
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
+    on_progress("Extracting layout with pdftohtml", 0.1)
     proc = subprocess.run(
         [pdftohtml_bin, "-overwrite", str(input_pdf), str(tmp_dir)],
         capture_output=True,
@@ -483,8 +508,12 @@ def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Pat
     extracted_lines: list[str] = []
     equation_count = 0
     equation_cap = 120
+    total_pages = len(page_files)
 
-    for page_file in page_files:
+    for page_idx, page_file in enumerate(page_files):
+        # Progress from 0.2 to 0.8 across pages
+        on_progress(f"Processing page {page_idx + 1}/{total_pages}",
+                    0.2 + 0.6 * page_idx / max(1, total_pages))
         page_match = re.search(r"(\d+)", page_file.stem)
         page_num = int(page_match.group(1)) if page_match else 1
         page_lines = _parse_pdftohtml_page(page_file, page_num)
@@ -534,6 +563,7 @@ def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Pat
             extracted_lines.append(line.text)
         extracted_lines.append("")
 
+    on_progress("Post-processing", 0.85)
     lines = [_normalize_line(line) for line in extracted_lines]
     lines = _remove_repeated_headers_footers(lines)
     lines = _fix_hyphenation(lines)
@@ -550,6 +580,7 @@ def _convert_with_latexocr(input_pdf: Path, output_md: Path, force: bool) -> Pat
         prev_blank = False
         compact.append(line)
 
+    on_progress("Generating markdown", 0.92)
     md = _lines_to_markdown(compact)
     output_md.write_text(md, encoding="utf-8")
     return output_md
@@ -875,13 +906,15 @@ def _looks_like_title_case(words: list[str]) -> bool:
     return (good / total) >= 0.45
 
 
-def _convert_with_pdftotext(input_pdf: Path, output_md: Path) -> Path:
+def _convert_with_pdftotext(input_pdf: Path, output_md: Path,
+                            on_progress: ProgressCallback = _noop_progress) -> Path:
     pdftotext_bin = _find_command("pdftotext")
     if pdftotext_bin is None:
         raise ConversionError(
             "pdftotext backend selected but `pdftotext` is not installed."
         )
 
+    on_progress("Extracting text", 0.1)
     cmd = [pdftotext_bin, "-raw", "-nopgbrk", str(input_pdf), "-"]
     proc = subprocess.run(cmd, capture_output=True)
     if proc.returncode != 0:
@@ -892,6 +925,7 @@ def _convert_with_pdftotext(input_pdf: Path, output_md: Path) -> Path:
             f"stdout:\n{stdout}\n\nstderr:\n{stderr}"
         )
 
+    on_progress("Post-processing text", 0.5)
     text = _normalize_text(proc.stdout.decode("utf-8", errors="replace"))
     lines = [_normalize_line(line) for line in text.split("\n")]
     lines = _remove_repeated_headers_footers(lines)
@@ -909,6 +943,7 @@ def _convert_with_pdftotext(input_pdf: Path, output_md: Path) -> Path:
         prev_blank = False
         compact.append(line)
 
+    on_progress("Generating markdown", 0.85)
     md = _lines_to_markdown(compact)
     output_md.write_text(md, encoding="utf-8")
     return output_md
@@ -921,17 +956,18 @@ def convert_pdf(input_pdf: str | Path, output_md: str | Path, options: ConvertOp
     _ensure_pdf(in_path)
     _prepare_output(out_path, options.force)
 
+    progress = options.on_progress
     backend = options.backend.strip().lower()
     if backend == "marker":
-        return _convert_with_marker(in_path, out_path, options.force)
+        return _convert_with_marker(in_path, out_path, options.force, progress)
     if backend == "nougat":
-        return _convert_with_nougat(in_path, out_path, options.force)
+        return _convert_with_nougat(in_path, out_path, options.force, progress)
     if backend == "latexocr":
-        return _convert_with_latexocr(in_path, out_path, options.force)
+        return _convert_with_latexocr(in_path, out_path, options.force, progress)
     if backend == "pymupdf4llm":
-        return _convert_with_pymupdf4llm(in_path, out_path)
+        return _convert_with_pymupdf4llm(in_path, out_path, progress)
     if backend == "pdftotext":
-        return _convert_with_pdftotext(in_path, out_path)
+        return _convert_with_pdftotext(in_path, out_path, progress)
 
     raise ConversionError(
         f"Unknown backend: {options.backend}. Use `marker`, `nougat`, `latexocr`, `pymupdf4llm`, or `pdftotext`."

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import shutil
+import subprocess
 import tempfile
+import threading
 import time
 import uuid
 import zipfile
@@ -23,11 +26,11 @@ from pdf2md_app.html_bundle import bundle_html
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB limit
 
-# Store conversion results keyed by job id so the user can download after convert
-_results: dict[str, Path] = {}
-
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
 _MAX_AGE_SECONDS = 21 * 24 * 60 * 60  # 3 weeks
+
+# Job tracking: job_id -> {status, stage, progress, filename, path, error}
+_jobs: dict[str, dict] = {}
 
 
 def _cleanup_old_tmp():
@@ -40,10 +43,52 @@ def _cleanup_old_tmp():
         age = now - d.stat().st_mtime
         if age > _MAX_AGE_SECONDS:
             shutil.rmtree(d, ignore_errors=True)
-            # Also purge any matching job entries
-            expired = [jid for jid, p in _results.items() if not p.exists()]
-            for jid in expired:
-                del _results[jid]
+
+
+def _make_progress_callback(job_id: str):
+    """Return a progress callback that updates the job dict."""
+    def on_progress(stage: str, frac: float):
+        _jobs[job_id]["stage"] = stage
+        _jobs[job_id]["progress"] = round(frac, 3)
+    return on_progress
+
+
+def _run_conversion(job_id: str, input_path: Path, output_path: Path,
+                    options: ConvertOptions, output_format: str):
+    """Run conversion in a background thread and update job status."""
+    try:
+        result = convert_pdf(input_path, output_path, options)
+
+        if output_format == "html":
+            _jobs[job_id].update(stage="Bundling HTML", progress=0.95)
+            html_path = bundle_html(result)
+            _jobs[job_id].update(
+                status="done", path=html_path, filename=html_path.name,
+                stage="Done", progress=1.0)
+        else:
+            images = [
+                f for f in result.parent.iterdir()
+                if f.suffix.lower() in _IMAGE_EXTS and f.is_file()
+            ]
+            if images:
+                _jobs[job_id].update(stage="Packaging files", progress=0.95)
+                zip_path = result.with_suffix(".zip")
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    zf.write(result, result.name)
+                    for img in images:
+                        zf.write(img, img.name)
+                _jobs[job_id].update(
+                    status="done", path=zip_path, filename=zip_path.name,
+                    stage="Done", progress=1.0)
+            else:
+                _jobs[job_id].update(
+                    status="done", path=result, filename=result.name,
+                    stage="Done", progress=1.0)
+
+    except ConversionError as exc:
+        _jobs[job_id].update(status="error", error=str(exc))
+    except Exception as exc:
+        _jobs[job_id].update(status="error", error=f"Conversion failed: {exc}")
 
 
 @app.route("/")
@@ -70,50 +115,117 @@ def convert():
     file.save(input_path)
 
     output_path = input_path.with_suffix(".md")
-    options = ConvertOptions(backend=backend, force=True)
-
-    try:
-        result = convert_pdf(input_path, output_path, options)
-    except ConversionError as exc:
-        return jsonify(error=str(exc)), 422
-    except Exception as exc:
-        return jsonify(error=f"Conversion failed: {exc}"), 500
-
     job_id = uuid.uuid4().hex
+    _jobs[job_id] = {"status": "converting", "stage": "Starting", "progress": 0.0}
 
-    if output_format == "html":
-        # Single self-contained HTML with base64-embedded images
-        html_path = bundle_html(result)
-        _results[job_id] = html_path
-        filename = html_path.name
+    options = ConvertOptions(
+        backend=backend, force=True,
+        on_progress=_make_progress_callback(job_id),
+    )
+
+    thread = threading.Thread(
+        target=_run_conversion,
+        args=(job_id, input_path, output_path, options, output_format),
+        daemon=True,
+    )
+    thread.start()
+
+    return jsonify(job_id=job_id)
+
+
+@app.route("/status/<job_id>")
+def status(job_id: str):
+    job = _jobs.get(job_id)
+    if job is None:
+        return jsonify(error="Unknown job."), 404
+
+    if job["status"] == "converting":
+        return jsonify(
+            status="converting",
+            stage=job.get("stage", ""),
+            progress=job.get("progress", 0.0),
+        )
+    elif job["status"] == "error":
+        return jsonify(status="error", error=job["error"])
     else:
-        # Markdown — zip with images if any exist
-        images = [
-            f for f in result.parent.iterdir()
-            if f.suffix.lower() in _IMAGE_EXTS and f.is_file()
-        ]
-        if images:
-            zip_path = result.with_suffix(".zip")
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                zf.write(result, result.name)
-                for img in images:
-                    zf.write(img, img.name)
-            _results[job_id] = zip_path
-            filename = zip_path.name
-        else:
-            _results[job_id] = result
-            filename = result.name
+        return jsonify(status="done", filename=job["filename"])
+
+
+@app.route("/system-stats")
+def system_stats():
+    # CPU usage (per-core average over 0.1s sampling)
+    try:
+        with open("/proc/stat") as f:
+            line1 = f.readline()
+        time.sleep(0.1)
+        with open("/proc/stat") as f:
+            line2 = f.readline()
+        v1 = list(map(int, line1.split()[1:]))
+        v2 = list(map(int, line2.split()[1:]))
+        delta = [b - a for a, b in zip(v1, v2)]
+        idle = delta[3]
+        total = sum(delta)
+        cpu_pct = round(100 * (1 - idle / max(1, total)), 1)
+    except Exception:
+        cpu_pct = None
+
+    # Memory
+    try:
+        with open("/proc/meminfo") as f:
+            meminfo = {}
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    meminfo[parts[0].rstrip(":")] = int(parts[1])
+        mem_total = meminfo.get("MemTotal", 0)
+        mem_avail = meminfo.get("MemAvailable", 0)
+        mem_used = mem_total - mem_avail
+        mem_pct = round(100 * mem_used / max(1, mem_total), 1)
+        mem_used_gb = round(mem_used / 1048576, 1)
+        mem_total_gb = round(mem_total / 1048576, 1)
+    except Exception:
+        mem_pct = mem_used_gb = mem_total_gb = None
+
+    # GPU via nvidia-smi
+    gpu = None
+    try:
+        result = subprocess.run(
+            ["nvidia-smi",
+             "--query-gpu=name,utilization.gpu,memory.used,memory.total,temperature.gpu",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            parts = [p.strip() for p in result.stdout.strip().split(",")]
+            if len(parts) >= 5:
+                gpu = {
+                    "name": parts[0],
+                    "util_pct": float(parts[1]),
+                    "mem_used_mb": float(parts[2]),
+                    "mem_total_mb": float(parts[3]),
+                    "mem_pct": round(100 * float(parts[2]) / max(1, float(parts[3])), 1),
+                    "temp_c": float(parts[4]),
+                }
+    except Exception:
+        pass
 
     return jsonify(
-        job_id=job_id,
-        filename=filename,
+        cpu_pct=cpu_pct,
+        mem_pct=mem_pct,
+        mem_used_gb=mem_used_gb,
+        mem_total_gb=mem_total_gb,
+        gpu=gpu,
     )
 
 
 @app.route("/download/<job_id>")
 def download(job_id: str):
-    path = _results.get(job_id)
-    if path is None or not path.exists():
+    job = _jobs.get(job_id)
+    if job is None or job.get("status") != "done":
+        return jsonify(error="File not found or not ready."), 404
+
+    path = job["path"]
+    if not path.exists():
         return jsonify(error="File not found or expired."), 404
 
     return send_file(path, as_attachment=True, download_name=path.name)
