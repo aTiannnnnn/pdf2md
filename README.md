@@ -1,6 +1,6 @@
-# PDF to Markdown (Research-Paper Focus)
+# pdf2md — PDF to Markdown & HTML
 
-A CLI tool to convert PDF files into Markdown, optimized for research papers.
+A CLI and web tool to convert research-paper PDFs into Markdown or self-contained HTML (with figures embedded).
 
 ## Fidelity expectations
 
@@ -38,6 +38,13 @@ Basic:
 
 ```bash
 pdf2md "paper.pdf"
+```
+
+Output as self-contained HTML (figures embedded as base64):
+
+```bash
+pdf2md "paper.pdf" --format html
+pdf2md "paper.pdf" --format html -o "paper.html"
 ```
 
 Specify output path:
@@ -88,7 +95,13 @@ pip install -e ".[web]"
 pdf2md-web
 ```
 
-Then open http://127.0.0.1:5000 — upload a PDF, pick a backend, and download the Markdown.
+Then open http://127.0.0.1:5000 — upload a PDF, pick a backend and output format (Markdown or HTML), and download the result.
+
+To make it accessible to other machines on a network (e.g. Tailnet):
+
+```bash
+pdf2md-web --host 0.0.0.0
+```
 
 ## Notes for better quality
 
