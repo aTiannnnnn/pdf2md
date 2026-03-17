@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import tempfile
+import time
 import uuid
 import zipfile
 from pathlib import Path
@@ -25,6 +27,23 @@ app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100 MB limit
 _results: dict[str, Path] = {}
 
 _IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"}
+_MAX_AGE_SECONDS = 21 * 24 * 60 * 60  # 3 weeks
+
+
+def _cleanup_old_tmp():
+    """Remove pdf2md_web_ temp directories older than 3 weeks."""
+    tmp_root = Path(tempfile.gettempdir())
+    now = time.time()
+    for d in tmp_root.glob("pdf2md_web_*"):
+        if not d.is_dir():
+            continue
+        age = now - d.stat().st_mtime
+        if age > _MAX_AGE_SECONDS:
+            shutil.rmtree(d, ignore_errors=True)
+            # Also purge any matching job entries
+            expired = [jid for jid, p in _results.items() if not p.exists()]
+            for jid in expired:
+                del _results[jid]
 
 
 @app.route("/")
@@ -40,6 +59,8 @@ def convert():
     file = request.files["file"]
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         return jsonify(error="Please upload a PDF file."), 400
+
+    _cleanup_old_tmp()
 
     backend = request.form.get("backend", "marker")
     output_format = request.form.get("format", "markdown")
